@@ -1,25 +1,51 @@
 import telebot
 import json
+import os
+
+from telebot import types
 
 TOKEN = "8683570334:AAFIauRar8CEffsIb6nozFcgyUQsQgFaFh0"
-
 bot = telebot.TeleBot(TOKEN)
 
-# Load quiz data
-with open("quiz.json", "r") as f:
-    quiz_data = json.load(f)
+QUIZ_FILE = "quiz.json"
 
 user_scores = {}
 
+# Load quiz
+def load_quiz():
+    if os.path.exists(QUIZ_FILE):
+        with open(QUIZ_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+quiz_data = load_quiz()
+
+# START MENU
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "🔥 Welcome to Quiz Bot!\nType /quiz to start.")
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    btn1 = types.KeyboardButton("🧠 Start Quiz")
+    btn2 = types.KeyboardButton("📊 My Score")
+    
+    markup.add(btn1, btn2)
 
-@bot.message_handler(commands=['quiz'])
+    bot.send_message(message.chat.id, "🔥 Welcome!\nSend JSON file to upload quiz.", reply_markup=markup)
+
+# START QUIZ
+@bot.message_handler(func=lambda message: message.text == "🧠 Start Quiz")
 def start_quiz(message):
+    global quiz_data
+    quiz_data = load_quiz()
+
+    if not quiz_data:
+        bot.send_message(message.chat.id, "⚠️ No quiz uploaded!")
+        return
+
     user_scores[message.chat.id] = 0
     send_question(message.chat.id, 0)
 
+# SEND QUESTION
 def send_question(chat_id, q_index):
     if q_index >= len(quiz_data):
         bot.send_message(chat_id, f"🎉 Quiz Finished!\nScore: {user_scores[chat_id]}/{len(quiz_data)}")
@@ -35,23 +61,42 @@ def send_question(chat_id, q_index):
         is_anonymous=False
     )
 
+# HANDLE ANSWERS
 @bot.poll_answer_handler()
 def handle_poll_answer(poll_answer):
     user_id = poll_answer.user.id
     selected = poll_answer.option_ids[0]
 
-    # Track question index
     if user_id not in user_scores:
         user_scores[user_id] = 0
 
-    # Increase score if correct
-    # (simple logic - assumes same order)
     current_q = user_scores[user_id]
 
     if selected == quiz_data[current_q]["correct"]:
         user_scores[user_id] += 1
 
     send_question(user_id, current_q + 1)
+
+# SHOW SCORE
+@bot.message_handler(func=lambda message: message.text == "📊 My Score")
+def show_score(message):
+    score = user_scores.get(message.chat.id, 0)
+    bot.send_message(message.chat.id, f"📊 Your Score: {score}")
+
+# JSON UPLOAD HANDLER
+@bot.message_handler(content_types=['document'])
+def handle_file(message):
+    try:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        with open(QUIZ_FILE, "wb") as f:
+            f.write(downloaded_file)
+
+        bot.send_message(message.chat.id, "✅ Quiz file uploaded successfully!")
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error: {e}")
 
 print("Bot running...")
 bot.infinity_polling()
