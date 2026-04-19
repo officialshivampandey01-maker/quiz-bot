@@ -43,7 +43,7 @@ def start(message):
     markup.add("🧠 Start Quiz", "📊 My Score")
     bot.send_message(
         message.chat.id,
-        "🔥 Welcome!\nUpload JSON file then press Start Quiz",
+        "🔥 Welcome!\nUpload JSON file or PASTE JSON text, then press Start Quiz",
         reply_markup=markup
     )
 
@@ -142,6 +142,29 @@ def handle_file(message):
 
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error: {e}")
+
+# Handle pasted JSON text as quiz
+@bot.message_handler(content_types=['text'])
+def handle_json_text(message):
+    text = message.text.strip()
+    if text.startswith("[") and "question" in text and "options" in text:
+        try:
+            quizz = json.loads(text)
+            # Parse correct_option just like file upload logic
+            for q in quizz:
+                if "correct_option" in q and "options" in q:
+                    idx = -1
+                    opts = [str(opt).strip() for opt in q["options"]]
+                    for i, opt in enumerate(opts):
+                        if opt.strip().lower() == q["correct_option"].strip().lower():
+                            idx = i
+                            break
+                    q["correct"] = idx if idx >= 0 else 0
+            with open(QUIZ_FILE, "w", encoding="utf-8") as f:
+                json.dump(quizz, f, ensure_ascii=False, indent=2)
+            bot.send_message(message.chat.id, f"✅ Quiz loaded from pasted JSON! Questions: {len(quizz)}")
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Pasted text looks like JSON but parsing failed: {e}")
 
 print("Bot running...")
 bot.infinity_polling()
