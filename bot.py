@@ -1,17 +1,19 @@
 import telebot
 import json
 import os
-
 from telebot import types
 
 TOKEN = "8683570334:AAFIauRar8CEffsIb6nozFcgyUQsQgFaFh0"
+
 bot = telebot.TeleBot(TOKEN)
 
 QUIZ_FILE = "quiz.json"
 
+# User data
 user_scores = {}
+user_question_index = {}
 
-# Load quiz
+# Load quiz file
 def load_quiz():
     if os.path.exists(QUIZ_FILE):
         with open(QUIZ_FILE, "r") as f:
@@ -24,13 +26,17 @@ quiz_data = load_quiz()
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    
+
     btn1 = types.KeyboardButton("🧠 Start Quiz")
     btn2 = types.KeyboardButton("📊 My Score")
-    
+
     markup.add(btn1, btn2)
 
-    bot.send_message(message.chat.id, "🔥 Welcome!\nSend JSON file to upload quiz.", reply_markup=markup)
+    bot.send_message(
+        message.chat.id,
+        "🔥 Welcome to Shivam Quiz Bot!\nSend JSON file to upload quiz.",
+        reply_markup=markup
+    )
 
 # START QUIZ
 @bot.message_handler(func=lambda message: message.text == "🧠 Start Quiz")
@@ -43,15 +49,23 @@ def start_quiz(message):
         return
 
     user_scores[message.chat.id] = 0
-    send_question(message.chat.id, 0)
+    user_question_index[message.chat.id] = 0
+
+    send_question(message.chat.id)
 
 # SEND QUESTION
-def send_question(chat_id, q_index):
+def send_question(chat_id):
+    q_index = user_question_index.get(chat_id, 0)
+
     if q_index >= len(quiz_data):
-        bot.send_message(chat_id, f"🎉 Quiz Finished!\nScore: {user_scores[chat_id]}/{len(quiz_data)}")
+        bot.send_message(
+            chat_id,
+            f"🎉 Quiz Finished!\nScore: {user_scores[chat_id]}/{len(quiz_data)}"
+        )
         return
 
     q = quiz_data[q_index]
+
     bot.send_poll(
         chat_id,
         q["question"],
@@ -67,15 +81,17 @@ def handle_poll_answer(poll_answer):
     user_id = poll_answer.user.id
     selected = poll_answer.option_ids[0]
 
-    if user_id not in user_scores:
-        user_scores[user_id] = 0
+    if user_id not in user_question_index:
+        return
 
-    current_q = user_scores[user_id]
+    q_index = user_question_index[user_id]
 
-    if selected == quiz_data[current_q]["correct"]:
+    if selected == quiz_data[q_index]["correct"]:
         user_scores[user_id] += 1
 
-    send_question(user_id, current_q + 1)
+    user_question_index[user_id] += 1
+
+    send_question(user_id)
 
 # SHOW SCORE
 @bot.message_handler(func=lambda message: message.text == "📊 My Score")
@@ -83,7 +99,7 @@ def show_score(message):
     score = user_scores.get(message.chat.id, 0)
     bot.send_message(message.chat.id, f"📊 Your Score: {score}")
 
-# JSON UPLOAD HANDLER
+# JSON FILE UPLOAD
 @bot.message_handler(content_types=['document'])
 def handle_file(message):
     try:
