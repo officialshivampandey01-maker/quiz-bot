@@ -4,16 +4,16 @@ import os
 from telebot import types
 
 TOKEN = "8683570334:AAFIauRar8CEffsIb6nozFcgyUQsQgFaFh0"
-
 bot = telebot.TeleBot(TOKEN)
 
 QUIZ_FILE = "quiz.json"
 
-# User data
+# Data
 user_scores = {}
 user_question_index = {}
+poll_map = {}  # poll_id -> chat_id
 
-# Load quiz file
+# Load quiz
 def load_quiz():
     if os.path.exists(QUIZ_FILE):
         with open(QUIZ_FILE, "r") as f:
@@ -22,19 +22,15 @@ def load_quiz():
 
 quiz_data = load_quiz()
 
-# START MENU
+# START
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-
-    btn1 = types.KeyboardButton("🧠 Start Quiz")
-    btn2 = types.KeyboardButton("📊 My Score")
-
-    markup.add(btn1, btn2)
+    markup.add("🧠 Start Quiz", "📊 My Score")
 
     bot.send_message(
         message.chat.id,
-        "🔥 Welcome to Shivam Quiz Bot!\nSend JSON file to upload quiz.",
+        "🔥 Welcome!\nSend JSON file to upload quiz.",
         reply_markup=markup
     )
 
@@ -48,10 +44,11 @@ def start_quiz(message):
         bot.send_message(message.chat.id, "⚠️ No quiz uploaded!")
         return
 
-    user_scores[message.chat.id] = 0
-    user_question_index[message.chat.id] = 0
+    chat_id = message.chat.id
+    user_scores[chat_id] = 0
+    user_question_index[chat_id] = 0
 
-    send_question(message.chat.id)
+    send_question(chat_id)
 
 # SEND QUESTION
 def send_question(chat_id):
@@ -66,7 +63,7 @@ def send_question(chat_id):
 
     q = quiz_data[q_index]
 
-    bot.send_poll(
+    msg = bot.send_poll(
         chat_id,
         q["question"],
         q["options"],
@@ -75,31 +72,36 @@ def send_question(chat_id):
         is_anonymous=False
     )
 
-# HANDLE ANSWERS
+    # Save poll_id mapping
+    poll_map[msg.poll.id] = chat_id
+
+# HANDLE ANSWER
 @bot.poll_answer_handler()
 def handle_poll_answer(poll_answer):
-    user_id = poll_answer.user.id
+    poll_id = poll_answer.poll_id
     selected = poll_answer.option_ids[0]
 
-    if user_id not in user_question_index:
+    if poll_id not in poll_map:
         return
 
-    q_index = user_question_index[user_id]
+    chat_id = poll_map[poll_id]
+
+    q_index = user_question_index[chat_id]
 
     if selected == quiz_data[q_index]["correct"]:
-        user_scores[user_id] += 1
+        user_scores[chat_id] += 1
 
-    user_question_index[user_id] += 1
+    user_question_index[chat_id] += 1
 
-    send_question(user_id)
+    send_question(chat_id)
 
-# SHOW SCORE
+# SCORE
 @bot.message_handler(func=lambda message: message.text == "📊 My Score")
-def show_score(message):
+def score(message):
     score = user_scores.get(message.chat.id, 0)
     bot.send_message(message.chat.id, f"📊 Your Score: {score}")
 
-# JSON FILE UPLOAD
+# FILE UPLOAD
 @bot.message_handler(content_types=['document'])
 def handle_file(message):
     try:
