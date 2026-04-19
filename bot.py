@@ -12,35 +12,49 @@ user_scores = {}
 user_question_index = {}
 poll_map = {}
 
-# LOAD QUIZ
+# Load quiz from JSON file (matches your advanced schema)
 def load_quiz():
     if os.path.exists(QUIZ_FILE):
         with open(QUIZ_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            try:
+                data = json.load(f)
+                # Convert correct_option value to index for Telegram poll
+                for q in data:
+                    if "correct_option" in q and "options" in q:
+                        idx = -1
+                        opts = [str(opt).strip() for opt in q["options"]]
+                        for i, opt in enumerate(opts):
+                            # compare ignoring case & whitespace
+                            if opt.strip().lower() == q["correct_option"].strip().lower():
+                                idx = i
+                                break
+                        q["correct"] = idx if idx >= 0 else 0
+                return data
+            except Exception as e:
+                print(f"Error loading quiz: {e}")
     return []
 
 quiz_data = load_quiz()
 
-# START MENU
+# Start menu
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🧠 Start Quiz", "📊 My Score")
-
     bot.send_message(
         message.chat.id,
         "🔥 Welcome!\nUpload JSON file then press Start Quiz",
         reply_markup=markup
     )
 
-# START QUIZ
+# Start Quiz
 @bot.message_handler(func=lambda m: m.text == "🧠 Start Quiz")
 def start_quiz(message):
     global quiz_data
     quiz_data = load_quiz()
 
     if not quiz_data:
-        bot.send_message(message.chat.id, "⚠️ No quiz uploaded!")
+        bot.send_message(message.chat.id, "⚠️ No quiz uploaded or quiz file format error!")
         return
 
     chat_id = message.chat.id
@@ -50,7 +64,7 @@ def start_quiz(message):
     bot.send_message(chat_id, "✅ Quiz Started!")
     send_question(chat_id)
 
-# SEND QUESTION
+# Send Question
 def send_question(chat_id):
     q_index = user_question_index.get(chat_id, 0)
 
@@ -62,30 +76,27 @@ def send_question(chat_id):
         return
 
     q = quiz_data[q_index]
-
-    # CLEAN QUESTION
     question = str(q.get("question", "")).strip()
+    options = [str(opt).strip() for opt in q.get("options", []) if str(opt).strip() != ""]
 
-    # CLEAN OPTIONS
-    options = q.get("options", [])
-    options = [str(opt).strip() for opt in options if str(opt).strip() != ""]
-
-    # SAFETY FIX
     if len(options) < 2:
         options = ["Option A", "Option B", "Option C", "Option D"]
+
+    correct_index = int(q.get("correct", 0))
+    if correct_index < 0 or correct_index >= len(options):
+        correct_index = 0  # Fallback
 
     msg = bot.send_poll(
         chat_id,
         question,
         options,
         type="quiz",
-        correct_option_id=int(q.get("correct", 0)),
+        correct_option_id=correct_index,
         is_anonymous=False
     )
-
     poll_map[msg.poll.id] = chat_id
 
-# HANDLE ANSWER
+# Handle Answer
 @bot.poll_answer_handler()
 def handle_answer(poll_answer):
     poll_id = poll_answer.poll_id
@@ -95,7 +106,6 @@ def handle_answer(poll_answer):
 
     chat_id = poll_map[poll_id]
     selected = poll_answer.option_ids[0]
-
     q_index = user_question_index.get(chat_id, 0)
 
     if selected == int(quiz_data[q_index].get("correct", 0)):
@@ -104,7 +114,7 @@ def handle_answer(poll_answer):
     user_question_index[chat_id] += 1
     send_question(chat_id)
 
-# SCORE
+# Score Command
 @bot.message_handler(func=lambda m: m.text == "📊 My Score")
 def score(message):
     bot.send_message(
@@ -112,7 +122,7 @@ def score(message):
         f"📊 Score: {user_scores.get(message.chat.id, 0)}"
     )
 
-# FILE UPLOAD
+# File Upload (accepts only .json, parses and tests file)
 @bot.message_handler(content_types=['document'])
 def handle_file(message):
     try:
@@ -122,11 +132,12 @@ def handle_file(message):
         with open(QUIZ_FILE, "wb") as f:
             f.write(downloaded_file)
 
+        # Validate/parse file
         data = load_quiz()
 
         bot.send_message(
             message.chat.id,
-            f"✅ Uploaded!\n📊 Questions: {len(data)}"
+            f"✅ Uploaded! 📊 Questions: {len(data)}"
         )
 
     except Exception as e:
